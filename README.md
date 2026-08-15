@@ -1,9 +1,11 @@
 # Local Code
 
-A terminal coding agent, built from scratch, that works with any model you point it at —
-local or cloud. It reads files, edits them, runs shell commands, and iterates in a loop
-until the task is done, same shape as tools like Claude Code or OpenCode, but provider-agnostic
-from the ground up.
+A coding agent, built from scratch, that works with any model you point it at — local or
+cloud. It reads files, edits them, runs shell commands, and iterates in a loop until the
+task is done, same shape as tools like Claude Code or OpenCode, but provider-agnostic from
+the ground up. It ships two front ends over the same idea: a terminal CLI (`src/`, Node/TS)
+and a native Windows desktop app (`desktop/`, Rust/iced) — see [`desktop/`](desktop) for that
+one. This README covers the CLI.
 
 Two backends ship out of the box:
 
