@@ -146,7 +146,8 @@ Mutating tools ask for approval unless Auto-approve is on.",
         text_input("Message Local Code\u{2026}", &state.input)
             .on_input(Message::InputChanged)
             .on_submit(Message::Submit)
-            .padding(12)
+            .padding([12, 18])
+            .style(theme::input_field)
             .width(Length::Fill),
         button(text(if state.busy { "Working\u{2026}" } else { "Send" }).size(14))
             .on_press_maybe(if state.busy { None } else { Some(Message::Submit) })
@@ -325,21 +326,25 @@ fn setup_view<'a>(setup_state: &'a SetupState, config: &'a LocalCodeConfig) -> E
             col = col.push(
                 text_input("Provider id (e.g. openai)", &form.id)
                     .padding(10)
+                    .style(theme::input_field)
                     .on_input(|v| Message::Setup(SetupMessage::CustomFieldChanged(CustomProviderField::Id, v))),
             );
             col = col.push(
                 text_input("Base URL", &form.base_url)
                     .padding(10)
+                    .style(theme::input_field)
                     .on_input(|v| Message::Setup(SetupMessage::CustomFieldChanged(CustomProviderField::BaseUrl, v))),
             );
             col = col.push(
                 text_input("Display label (optional)", &form.label)
                     .padding(10)
+                    .style(theme::input_field)
                     .on_input(|v| Message::Setup(SetupMessage::CustomFieldChanged(CustomProviderField::Label, v))),
             );
             col = col.push(
                 text_input("API key (optional)", &form.api_key)
                     .padding(10)
+                    .style(theme::input_field)
                     .secure(true)
                     .on_input(|v| Message::Setup(SetupMessage::CustomFieldChanged(CustomProviderField::ApiKey, v))),
             );
@@ -364,7 +369,7 @@ fn setup_view<'a>(setup_state: &'a SetupState, config: &'a LocalCodeConfig) -> E
             } else {
                 if models.len() > 8 {
                     col = col.push(
-                        text_input("Filter\u{2026}", filter).padding(10).on_input(|v| Message::Setup(SetupMessage::ModelFilterChanged(v))),
+                        text_input("Filter\u{2026}", filter).padding(10).style(theme::input_field).on_input(|v| Message::Setup(SetupMessage::ModelFilterChanged(v))),
                     );
                 }
                 let matches = filtered_models(models, filter);
@@ -391,6 +396,7 @@ fn setup_view<'a>(setup_state: &'a SetupState, config: &'a LocalCodeConfig) -> E
             col = col.push(
                 text_input("Model name", value)
                     .padding(10)
+                    .style(theme::input_field)
                     .on_input(|v| Message::Setup(SetupMessage::ManualModelChanged(v)))
                     .on_submit(Message::Setup(SetupMessage::ManualModelSubmit)),
             );
