@@ -1,18 +1,23 @@
 import chalk from "chalk";
-import { boxBottom, boxLine, boxTop, boxWidth } from "./box.js";
+import { centerLine } from "./box.js";
 import { renderLogo } from "./logo.js";
+import { isReasoningModel } from "../system/reasoning.js";
 
+// No placeholder input box here — the real "you" box (drawn by the REPL's input loop,
+// see repl.ts) always appears immediately below this banner, so a second decorative one
+// was just dead space stacked on top of the one you actually type into.
 export function printBanner(providerLabel: string, model: string): void {
   const modelText = model ? chalk.bold(model) : chalk.red("(none set — try /model)");
-  const width = boxWidth();
 
   console.log();
-  console.log(renderLogo());
-  console.log(chalk.dim("  code with any model you point it at — local or cloud\n"));
-  console.log(boxTop(width));
-  console.log(boxLine(` provider ${chalk.bold(providerLabel)}   model ${modelText}`, width));
-  console.log(boxLine(chalk.dim(" /help for commands   /model, /provider to switch"), width));
-  console.log(boxBottom(width));
+  for (const line of renderLogo().split("\n")) console.log(centerLine(line));
+  console.log(centerLine(chalk.dim("code with any model you point it at — local or cloud")));
+  console.log();
+
+  const status = [`${chalk.dim("provider")} ${chalk.bold(providerLabel)}`, `${chalk.dim("model")} ${modelText}`];
+  if (model && isReasoningModel(model)) status.push(chalk.magenta("◆ reasoning"));
+  console.log(centerLine(status.join(chalk.dim("   ·   "))));
+  console.log(centerLine(chalk.dim("/help for commands   /model, /provider to switch")));
   console.log();
 }
 

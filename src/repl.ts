@@ -9,7 +9,8 @@ import { confirmMutatingTool as confirmMutatingToolUI } from "./ui/confirm.js";
 import { pickModel, pickProvider, runSetupWizard } from "./ui/setup.js";
 import { saveConfig } from "./config.js";
 import { closeFallbackSelectInterface } from "./ui/boxSelect.js";
-import { boxBottom, boxTop, boxWidth } from "./ui/box.js";
+import { readBoxedLine } from "./ui/inputBox.js";
+import { isReasoningModel } from "./system/reasoning.js";
 import {
   printAssistantLabel,
   printBanner,
@@ -47,6 +48,10 @@ export async function startRepl(opts: ReplOptions): Promise<void> {
   let providerId = opts.providerId;
   let model = opts.model;
   let provider = resolveProvider(opts.config, providerId);
+
+  const noteReasoning = (m: string) => {
+    if (isReasoningModel(m)) printNotice("◆ reasoning model detected — thinking output will render dimmed.");
+  };
 
   const toolDefs = allTools.map((t) => t.definition);
   let messages: Message[] = [{ role: "system", content: buildSystemPrompt(toolDefs, opts.cwd) }];
@@ -143,41 +148,42 @@ export async function startRepl(opts: ReplOptions): Promise<void> {
     return;
   }
 
-  // The boxed input framing relies on the terminal echoing the typed line and its
-  // trailing Enter as a real newline before we draw the bottom border. Piped/non-TTY
-  // stdin isn't echoed, so the border would land glued onto the same line as the
-  // prompt — fall back to the plain single-line prompt there instead.
+  // The boxed input widget drives stdin itself via raw mode (see ui/inputBox.ts), which
+  // needs a real TTY. Piped/non-TTY stdin falls back to a plain single-line prompt.
   const boxedInput = Boolean(process.stdout.isTTY);
+  const history: string[] = [];
 
   while (true) {
-    const width = boxWidth();
-    if (boxedInput) console.log(boxTop(width, "you"));
-
-    const promptText = boxedInput
-      ? chalk.cyan("│") + " " + chalk.green("❯") + " "
-      : chalk.bold.green("you") + chalk.dim(" › ");
-    // Piped stdin can hit EOF (auto-closing rl) before we've drained lines the
-    // iterator already had buffered from an earlier chunk — skip the prompt write in
-    // that case rather than throwing, and still try to read out what's left below.
-    try {
-      rl.setPrompt(promptText);
-      rl.prompt();
-    } catch {
-      // rl already closed; fall through to draining any buffered lines below.
-    }
-
     let line: string;
-    try {
-      const next = await lines.next();
-      if (next.done) break; // stream closed (Ctrl+C / Ctrl+D)
-      line = next.value;
-    } catch {
-      break;
+
+    if (boxedInput) {
+      const result = await withPausedRl(() => readBoxedLine({ title: "you", history }));
+      if (result === undefined) break; // Ctrl+C / Ctrl+D inside the box
+      line = result;
+    } else {
+      const promptText = chalk.bold.green("you") + chalk.dim(" › ");
+      // Piped stdin can hit EOF (auto-closing rl) before we've drained lines the
+      // iterator already had buffered from an earlier chunk — skip the prompt write in
+      // that case rather than throwing, and still try to read out what's left below.
+      try {
+        rl.setPrompt(promptText);
+        rl.prompt();
+      } catch {
+        // rl already closed; fall through to draining any buffered lines below.
+      }
+
+      try {
+        const next = await lines.next();
+        if (next.done) break; // stream closed (Ctrl+C / Ctrl+D)
+        line = next.value;
+      } catch {
+        break;
+      }
     }
-    if (boxedInput) console.log(boxBottom(width));
 
     const trimmed = line.trim();
     if (!trimmed) continue;
+    if (boxedInput) history.push(trimmed);
 
     if (trimmed.startsWith("/")) {
       const spaceIdx = trimmed.indexOf(" ");
@@ -203,6 +209,7 @@ export async function startRepl(opts: ReplOptions): Promise<void> {
           if (arg) {
             model = arg;
             printNotice(`Switched to model: ${model}`);
+            noteReasoning(model);
             break;
           }
           const providerConfig = opts.config.providers.find((p) => p.id === providerId);
@@ -213,6 +220,7 @@ export async function startRepl(opts: ReplOptions): Promise<void> {
           const picked = await withPausedRl(() => pickModel(providerConfig));
           if (picked) {
             model = picked;
+            noteReasoning(model);
           }
           break;
         }
@@ -235,6 +243,7 @@ export async function startRepl(opts: ReplOptions): Promise<void> {
           const pickedModel = await withPausedRl(() => pickModel(providerConfig));
           if (pickedModel) {
             model = pickedModel;
+            noteReasoning(model);
           }
           break;
         }
@@ -246,6 +255,7 @@ export async function startRepl(opts: ReplOptions): Promise<void> {
             provider = resolveProvider(opts.config, providerId);
             model = picked.model;
             printNotice(`Switched to ${provider.label} / ${model}`);
+            noteReasoning(model);
           }
           break;
         }
