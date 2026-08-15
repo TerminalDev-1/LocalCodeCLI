@@ -1,19 +1,20 @@
 use crate::agent_bridge::{agent_event_stream, AppAgentEvent, ApprovalResponder, TurnRequest};
 use crate::setup::{self, SetupMessage, SetupOutcome, SetupState};
+use crate::workspace::{self, now_millis, Workspace};
 use futures::StreamExt;
 use iced::Task;
 use local_code_core::agent::system_prompt::build_system_prompt;
-use local_code_core::config::{load_config, save_config};
-use local_code_core::providers::registry::{create_provider, resolve_provider};
+use local_code_core::config::load_config;
+use local_code_core::providers::registry::create_provider;
 use local_code_core::tools::registry::all_tools;
-use local_code_core::types::{LocalCodeConfig, Message as CoreMessage, Provider, ProviderConfig};
+use local_code_core::types::{LocalCodeConfig, Message as CoreMessage, Provider, ProviderConfig, Role};
 use serde_json::{Map, Value};
 use std::path::PathBuf;
 use std::sync::Arc;
 
 pub enum Screen {
     Setup(SetupState),
-    Chat,
+    Workspace,
 }
 
 #[derive(Debug, Clone)]
@@ -27,18 +28,15 @@ pub enum TranscriptItem {
 pub struct State {
     pub screen: Screen,
     pub config: LocalCodeConfig,
+    pub workspace: Workspace,
     pub provider: Option<Arc<dyn Provider>>,
-    pub provider_config: Option<ProviderConfig>,
-    pub model: String,
-    pub cwd: PathBuf,
-    pub auto_approve: bool,
-    pub session_auto_approve: bool,
-    pub core_messages: Vec<CoreMessage>,
     pub transcript: Vec<TranscriptItem>,
     pub input: String,
     pub busy: bool,
+    pub session_auto_approve: bool,
     pub show_help: bool,
     mid_session_setup: bool,
+    last_picked: Option<(ProviderConfig, String)>,
 }
 
 #[derive(Debug, Clone)]
@@ -54,60 +52,50 @@ pub enum Message {
     ClearConversation,
     OpenProviderPicker,
     ShowHelp(bool),
+    AddProjectPressed,
+    ProjectPicked(Option<PathBuf>),
+    SelectProject(String),
+    NewChat,
+    SelectChat(String),
 }
 
 impl State {
     pub fn new() -> (Self, Task<Message>) {
+        let workspace = workspace::load_workspace();
         let state = Self {
             screen: Screen::Setup(SetupState::Probing),
             config: LocalCodeConfig { providers: vec![], default_provider: String::new(), default_model: String::new(), auto_approve: false },
+            workspace,
             provider: None,
-            provider_config: None,
-            model: String::new(),
-            cwd: std::env::current_dir().unwrap_or_default(),
-            auto_approve: false,
-            session_auto_approve: false,
-            core_messages: Vec::new(),
             transcript: Vec::new(),
             input: String::new(),
             busy: false,
+            session_auto_approve: false,
             show_help: false,
             mid_session_setup: false,
+            last_picked: None,
         };
         let task = Task::perform(async { load_config() }, Message::ConfigLoaded);
         (state, task)
     }
 
     pub fn title(&self) -> String {
-        match &self.provider_config {
-            Some(p) if !self.model.is_empty() => format!("Local Code — {} / {}", p.display_label(), self.model),
-            _ => "Local Code".to_string(),
+        match self.workspace.active_project.as_deref().and_then(|id| self.workspace.project(id)) {
+            Some(p) => format!("Local Code — {}", p.name),
+            None => "Local Code".to_string(),
         }
     }
 
     pub fn update(&mut self, message: Message) -> Task<Message> {
         match message {
             Message::ConfigLoaded(config) => {
-                self.auto_approve = config.auto_approve;
                 self.config = config;
                 if self.config.default_model.is_empty() {
                     self.enter_setup(false);
-                    Task::batch([setup::probe_task(self.config.clone())])
+                    setup::probe_task(self.config.clone())
                 } else {
-                    match resolve_provider(&self.config, None) {
-                        Ok(provider) => {
-                            let provider_config = self.config.providers.iter().find(|p| p.id == self.config.default_provider).cloned();
-                            self.provider = Some(provider);
-                            self.provider_config = provider_config;
-                            self.model = self.config.default_model.clone();
-                            self.enter_chat_fresh();
-                            Task::none()
-                        }
-                        Err(_) => {
-                            self.enter_setup(false);
-                            Task::batch([setup::probe_task(self.config.clone())])
-                        }
-                    }
+                    self.enter_workspace();
+                    Task::none()
                 }
             }
 
@@ -115,15 +103,19 @@ impl State {
                 let Screen::Setup(setup_state) = &mut self.screen else { return Task::none() };
                 let (task, outcome) = setup::update(setup_state, m, &mut self.config);
                 if let Some(SetupOutcome::Finished { provider, model }) = outcome {
-                    self.provider = Some(create_provider(&provider));
-                    self.provider_config = Some(provider);
-                    self.model = model;
+                    self.last_picked = Some((provider.clone(), model.clone()));
                     if self.mid_session_setup {
                         self.mid_session_setup = false;
-                        self.screen = Screen::Chat;
-                    } else {
-                        self.enter_chat_fresh();
+                        if let Some(chat_id) = self.workspace.active_chat.clone() {
+                            if let Some(chat) = self.workspace.chat_mut(&chat_id) {
+                                chat.provider_id = provider.id.clone();
+                                chat.model = model;
+                            }
+                            let _ = workspace::save_workspace(&self.workspace);
+                        }
+                        self.provider = Some(create_provider(&provider));
                     }
+                    self.screen = Screen::Workspace;
                 }
                 task
             }
@@ -137,11 +129,18 @@ impl State {
                 if self.busy || self.input.trim().is_empty() {
                     return Task::none();
                 }
+                let Some(chat_id) = self.workspace.active_chat.clone() else { return Task::none() };
                 let text = std::mem::take(&mut self.input);
                 self.transcript.push(TranscriptItem::User(text.clone()));
-                self.core_messages.push(CoreMessage::user(text));
+                if let Some(chat) = self.workspace.chat_mut(&chat_id) {
+                    chat.messages.push(CoreMessage::user(text));
+                    if chat.title.is_none() {
+                        chat.title = Some(derive_title(&chat.messages));
+                    }
+                }
+                let _ = workspace::save_workspace(&self.workspace);
                 self.busy = true;
-                self.start_turn()
+                self.start_turn(&chat_id)
             }
 
             Message::Agent(event) => self.handle_agent_event(event),
@@ -168,25 +167,79 @@ impl State {
             }
 
             Message::ToggleAutoApprove(v) => {
-                self.auto_approve = v;
                 self.config.auto_approve = v;
-                let _ = save_config(&self.config);
+                let _ = local_code_core::config::save_config(&self.config);
                 Task::none()
             }
 
             Message::ClearConversation => {
+                if let Some(chat_id) = self.workspace.active_chat.clone() {
+                    self.seed_chat(&chat_id);
+                    let _ = workspace::save_workspace(&self.workspace);
+                }
                 self.transcript.clear();
-                self.seed_system_message();
                 Task::none()
             }
 
             Message::OpenProviderPicker => {
+                if self.workspace.active_chat.is_none() || self.busy {
+                    return Task::none();
+                }
                 self.enter_setup(true);
                 Task::none()
             }
 
             Message::ShowHelp(v) => {
                 self.show_help = v;
+                Task::none()
+            }
+
+            Message::AddProjectPressed => {
+                if self.busy {
+                    return Task::none();
+                }
+                Task::perform(pick_folder(), Message::ProjectPicked)
+            }
+
+            Message::ProjectPicked(Some(path)) => {
+                let project_id = self.workspace.add_project(path);
+                let _ = workspace::save_workspace(&self.workspace);
+                self.create_and_activate_chat(&project_id);
+                Task::none()
+            }
+            Message::ProjectPicked(None) => Task::none(),
+
+            Message::SelectProject(id) => {
+                if self.busy {
+                    return Task::none();
+                }
+                self.workspace.active_project = Some(id.clone());
+                match self.workspace.most_recent_chat_for_project(&id).map(|c| c.id.clone()) {
+                    Some(chat_id) => self.activate_chat(&chat_id),
+                    None => {
+                        self.workspace.active_chat = None;
+                        self.transcript.clear();
+                        self.provider = None;
+                    }
+                }
+                let _ = workspace::save_workspace(&self.workspace);
+                Task::none()
+            }
+
+            Message::NewChat => {
+                if self.busy {
+                    return Task::none();
+                }
+                let Some(project_id) = self.workspace.active_project.clone() else { return Task::none() };
+                self.create_and_activate_chat(&project_id);
+                Task::none()
+            }
+
+            Message::SelectChat(id) => {
+                if self.busy {
+                    return Task::none();
+                }
+                self.activate_chat(&id);
                 Task::none()
             }
         }
@@ -198,30 +251,82 @@ impl State {
         self.mid_session_setup = mid_session;
     }
 
-    fn seed_system_message(&mut self) {
+    fn enter_workspace(&mut self) {
+        self.screen = Screen::Workspace;
+        if let Some(chat_id) = self.workspace.active_chat.clone() {
+            if self.workspace.chat(&chat_id).is_some() {
+                self.activate_chat(&chat_id);
+                return;
+            }
+        }
+        if let Some(project_id) = self.workspace.active_project.clone() {
+            if let Some(chat_id) = self.workspace.most_recent_chat_for_project(&project_id).map(|c| c.id.clone()) {
+                self.activate_chat(&chat_id);
+            }
+        }
+    }
+
+    fn create_and_activate_chat(&mut self, project_id: &str) {
+        let (provider_id, model) = self.default_provider_and_model();
+        let chat_id = self.workspace.add_chat(project_id, provider_id, model);
+        self.seed_chat(&chat_id);
+        let _ = workspace::save_workspace(&self.workspace);
+        self.activate_chat(&chat_id);
+    }
+
+    fn default_provider_and_model(&self) -> (String, String) {
+        if let Some((provider, model)) = &self.last_picked {
+            return (provider.id.clone(), model.clone());
+        }
+        (self.config.default_provider.clone(), self.config.default_model.clone())
+    }
+
+    fn seed_chat(&mut self, chat_id: &str) {
+        let Some(project_id) = self.workspace.chat(chat_id).map(|c| c.project_id.clone()) else { return };
+        let Some(project) = self.workspace.project(&project_id) else { return };
         let tool_defs = all_tools().iter().map(|t| t.definition()).collect::<Vec<_>>();
-        let prompt = build_system_prompt(&tool_defs, &self.cwd.to_string_lossy());
-        self.core_messages = vec![CoreMessage::system(prompt)];
+        let prompt = build_system_prompt(&tool_defs, &project.path.to_string_lossy());
+        if let Some(chat) = self.workspace.chat_mut(chat_id) {
+            chat.messages = vec![CoreMessage::system(prompt)];
+        }
     }
 
-    fn enter_chat_fresh(&mut self) {
-        self.seed_system_message();
-        self.transcript.clear();
+    fn activate_chat(&mut self, chat_id: &str) {
+        self.workspace.active_chat = Some(chat_id.to_string());
+        let Some(chat) = self.workspace.chat(chat_id) else { return };
+        let project_id = chat.project_id.clone();
+        let transcript = transcript_from_core_messages(&chat.messages);
+        let provider = self.config.providers.iter().find(|p| p.id == chat.provider_id).map(create_provider);
+
+        self.workspace.active_project = Some(project_id);
+        self.transcript = transcript;
+        self.provider = provider;
         self.session_auto_approve = false;
-        self.screen = Screen::Chat;
+        self.busy = false;
+        self.input.clear();
+        let _ = workspace::save_workspace(&self.workspace);
     }
 
-    fn start_turn(&mut self) -> Task<Message> {
-        let Some(provider) = self.provider.clone() else {
+    fn start_turn(&mut self, chat_id: &str) -> Task<Message> {
+        let Some(chat) = self.workspace.chat(chat_id) else {
             self.busy = false;
             return Task::none();
         };
+        let Some(project) = self.workspace.project(&chat.project_id) else {
+            self.busy = false;
+            return Task::none();
+        };
+        let Some(provider_config) = self.config.providers.iter().find(|p| p.id == chat.provider_id) else {
+            self.busy = false;
+            self.transcript.push(TranscriptItem::Notice(format!("Unknown provider \"{}\" for this chat.", chat.provider_id)));
+            return Task::none();
+        };
         let req = TurnRequest {
-            provider,
-            model: self.model.clone(),
-            messages: self.core_messages.clone(),
-            cwd: self.cwd.clone(),
-            auto_approve: self.auto_approve || self.session_auto_approve,
+            provider: create_provider(provider_config),
+            model: chat.model.clone(),
+            messages: chat.messages.clone(),
+            cwd: project.path.clone(),
+            auto_approve: self.config.auto_approve || self.session_auto_approve,
         };
         Task::stream(agent_event_stream(req).map(Message::Agent))
     }
@@ -284,13 +389,73 @@ impl State {
                 Task::none()
             }
             AppAgentEvent::Done { messages } => {
-                self.core_messages = messages;
                 self.busy = false;
                 if let Some(TranscriptItem::Assistant { streaming, .. }) = self.transcript.last_mut() {
                     *streaming = false;
+                }
+                if let Some(chat_id) = self.workspace.active_chat.clone() {
+                    if let Some(chat) = self.workspace.chat_mut(&chat_id) {
+                        chat.messages = messages;
+                        chat.updated_at = now_millis();
+                    }
+                    let _ = workspace::save_workspace(&self.workspace);
                 }
                 Task::none()
             }
         }
     }
+}
+
+fn derive_title(messages: &[CoreMessage]) -> String {
+    let text = messages.iter().find(|m| m.role == Role::User).map(|m| m.content.as_str()).unwrap_or("New chat");
+    let trimmed = text.trim();
+    if trimmed.chars().count() > 48 {
+        format!("{}\u{2026}", trimmed.chars().take(48).collect::<String>())
+    } else if trimmed.is_empty() {
+        "New chat".to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+/// Rebuilds the display transcript from a chat's canonical message history — used when a
+/// persisted chat is opened. Reconstructed tool cards default to non-error styling since
+/// success/failure isn't separately stored in the persisted history (minor, acceptable).
+fn transcript_from_core_messages(messages: &[CoreMessage]) -> Vec<TranscriptItem> {
+    let mut items = Vec::new();
+
+    for m in messages {
+        match m.role {
+            Role::System => continue,
+            Role::User => items.push(TranscriptItem::User(m.content.clone())),
+            Role::Assistant => {
+                if let Some(calls) = &m.tool_calls {
+                    for tc in calls {
+                        items.push(TranscriptItem::Tool { name: tc.name.clone(), args: tc.arguments.clone(), output: None, approval: None });
+                    }
+                }
+                if !m.content.is_empty() {
+                    items.push(TranscriptItem::Assistant {
+                        text: m.content.clone(),
+                        thinking: String::new(),
+                        thinking_expanded: false,
+                        streaming: false,
+                    });
+                }
+            }
+            Role::Tool => {
+                if let Some(TranscriptItem::Tool { output, .. }) =
+                    items.iter_mut().rev().find(|i| matches!(i, TranscriptItem::Tool { output: None, .. }))
+                {
+                    *output = Some((m.content.clone(), false));
+                }
+            }
+        }
+    }
+
+    items
+}
+
+async fn pick_folder() -> Option<PathBuf> {
+    rfd::AsyncFileDialog::new().pick_folder().await.map(|h| h.path().to_path_buf())
 }
