@@ -1,5 +1,5 @@
 import chalk from "chalk";
-import prompts from "prompts";
+import { boxSelect } from "./boxSelect.js";
 
 let sessionAutoApprove = false;
 
@@ -27,10 +27,8 @@ export async function confirmMutatingTool(name: string, preview: string): Promis
   console.log(chalk.bold.yellow(`\n  ${name} wants to make changes:`));
   console.log(renderPreview(preview));
 
-  const response = await prompts({
-    type: "select",
-    name: "choice",
-    message: "Allow this?",
+  const choice = await boxSelect({
+    title: "Allow this?",
     choices: [
       { title: "Yes", value: "yes" },
       { title: "No", value: "no" },
@@ -38,9 +36,9 @@ export async function confirmMutatingTool(name: string, preview: string): Promis
     ],
   });
 
-  if (response.choice === "always") {
+  if (choice === "always") {
     sessionAutoApprove = true;
     return true;
   }
-  return response.choice === "yes";
+  return choice === "yes";
 }

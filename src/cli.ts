@@ -3,6 +3,8 @@ import chalk from "chalk";
 import { loadConfig, saveConfig, getConfigPath } from "./config.js";
 import { resolveProvider } from "./providers/registry.js";
 import { startRepl } from "./repl.js";
+import { runSetupWizard, pickModel, pickProvider } from "./ui/setup.js";
+import { closeFallbackSelectInterface } from "./ui/boxSelect.js";
 
 export async function run(argv: string[]): Promise<void> {
   const program = new Command();
@@ -17,10 +19,19 @@ export async function run(argv: string[]): Promise<void> {
     .option("--print", "run one turn non-interactively, print the result, and exit", false)
     .action(async (prompt: string | undefined, options) => {
       const config = loadConfig();
-      const providerId = options.provider ?? config.defaultProvider;
-      const model = options.model ?? config.defaultModel;
+      let providerId = options.provider ?? config.defaultProvider;
+      let model = options.model ?? config.defaultModel;
 
-      if (!model) {
+      const interactive = Boolean(process.stdin.isTTY) && !options.print;
+
+      if (!model && interactive) {
+        const picked = await runSetupWizard(config, saveConfig);
+        closeFallbackSelectInterface();
+        if (picked) {
+          providerId = picked.providerConfig.id;
+          model = picked.model;
+        }
+      } else if (!model) {
         console.log(
           chalk.yellow(
             `No default model set. Pass --model <name>, or set one with:\n` +
@@ -85,27 +96,45 @@ export async function run(argv: string[]): Promise<void> {
     });
 
   configCmd
-    .command("set-model <name>")
-    .description("set the default model")
-    .action((name: string) => {
+    .command("set-model [name]")
+    .description("set the default model (interactive picker if omitted)")
+    .action(async (name: string | undefined) => {
       const config = loadConfig();
-      config.defaultModel = name;
+      let model = name;
+      if (!model) {
+        const providerConfig = config.providers.find((p) => p.id === config.defaultProvider);
+        if (!providerConfig) {
+          console.log(chalk.red(`Default provider "${config.defaultProvider}" isn't in the config.`));
+          return;
+        }
+        model = await pickModel(providerConfig);
+        closeFallbackSelectInterface();
+        if (!model) return;
+      }
+      config.defaultModel = model;
       saveConfig(config);
-      console.log(chalk.green(`Default model set to ${name}`));
+      console.log(chalk.green(`Default model set to ${model}`));
     });
 
   configCmd
-    .command("set-provider <id>")
-    .description("set the default provider")
-    .action((id: string) => {
+    .command("set-provider [id]")
+    .description("set the default provider (interactive picker if omitted)")
+    .action(async (id: string | undefined) => {
       const config = loadConfig();
-      if (!config.providers.some((p) => p.id === id)) {
-        console.log(chalk.red(`Unknown provider "${id}". Configured: ${config.providers.map((p) => p.id).join(", ")}`));
+      let providerId = id;
+      if (!providerId) {
+        const providerConfig = await pickProvider(config);
+        closeFallbackSelectInterface();
+        if (!providerConfig) return;
+        providerId = providerConfig.id;
+        saveConfig(config); // persist any newly-added custom provider
+      } else if (!config.providers.some((p) => p.id === providerId)) {
+        console.log(chalk.red(`Unknown provider "${providerId}". Configured: ${config.providers.map((p) => p.id).join(", ")}`));
         return;
       }
-      config.defaultProvider = id;
+      config.defaultProvider = providerId;
       saveConfig(config);
-      console.log(chalk.green(`Default provider set to ${id}`));
+      console.log(chalk.green(`Default provider set to ${providerId}`));
     });
 
   await program.parseAsync(argv);

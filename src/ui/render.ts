@@ -1,13 +1,19 @@
 import chalk from "chalk";
+import { boxBottom, boxLine, boxTop, boxWidth } from "./box.js";
+import { renderLogo } from "./logo.js";
 
 export function printBanner(providerLabel: string, model: string): void {
-  console.log(chalk.bold.cyan("\n  Local Code") + chalk.dim("  — code with any model you point it at"));
-  console.log(chalk.dim(`  provider: ${providerLabel}   model: ${model || "(none set)"}`));
-  console.log(chalk.dim("  type your request, or /help for commands\n"));
-}
+  const modelText = model ? chalk.bold(model) : chalk.red("(none set — try /model)");
+  const width = boxWidth();
 
-export function printUserPrompt(): void {
-  process.stdout.write(chalk.bold.green("you") + chalk.dim(" › ") );
+  console.log();
+  console.log(renderLogo());
+  console.log(chalk.dim("  code with any model you point it at — local or cloud\n"));
+  console.log(boxTop(width));
+  console.log(boxLine(` provider ${chalk.bold(providerLabel)}   model ${modelText}`, width));
+  console.log(boxLine(chalk.dim(" /help for commands   /model, /provider to switch"), width));
+  console.log(boxBottom(width));
+  console.log();
 }
 
 export function printAssistantLabel(): void {

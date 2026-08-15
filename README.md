@@ -34,12 +34,31 @@ npm link
 
 ## Quick start
 
-Start [Ollama](https://ollama.com) or [LM Studio](https://lmstudio.ai) and load a model, then:
+Start [Ollama](https://ollama.com) or [LM Studio](https://lmstudio.ai) and load a model, then
+just run:
+
+```bash
+local-code
+```
+
+The first time you run it with no model configured, a setup wizard walks you through picking
+a provider (including adding a custom OpenAI-compatible endpoint on the fly) and a model —
+fetched live from that provider, in a boxed arrow-key picker with type-to-filter — and offers
+to save your choice as the default so you're not asked again.
+
+If nothing at all is reachable (no Ollama, no LM Studio), the wizard checks whether Ollama is
+installed. If it is but isn't running, it starts it for you; if it's running with no models
+pulled yet, it sizes a recommendation off your machine's RAM (a small, fast coding model on
+modest hardware, a stronger one if you've got the headroom) and offers to pull it right there
+with one keypress. If Ollama isn't installed at all, it points you at
+[ollama.com/download](https://ollama.com/download) and falls back to manual setup.
+
+Prefer to configure it yourself? Same pickers are available directly:
 
 ```bash
 local-code models                 # see what's available from each provider
-local-code config set-provider ollama
-local-code config set-model llama3.1:8b
+local-code config set-provider    # interactive picker
+local-code config set-model       # interactive picker
 local-code                        # start an interactive session in the current directory
 ```
 
@@ -70,7 +89,9 @@ Commands:
   config set-provider <id>   set the default provider
 ```
 
-In-session slash commands: `/help`, `/model <name>`, `/provider <id>`, `/clear`, `/exit`.
+In-session slash commands: `/model` (interactive picker) or `/model <name>`, `/provider`
+(interactive picker) or `/provider <id>`, `/models` (list what the current provider has
+available), `/help`, `/clear`, `/exit`.
 
 File edits and shell commands are previewed (as a diff, or the literal command) and require
 approval before running, unless you pass `-y/--yolo` or choose "don't ask again" in-session.
@@ -115,6 +136,16 @@ src/
     toolCallParser.ts   streaming scanner for the ```tool_call fallback protocol
     thinkingFilter.ts   strips/dims <think> reasoning blocks
     loop.ts             the agent loop: call model, run tools, repeat until done
-  ui/                   terminal rendering + approval prompts
+  ui/
+    logo.ts              ASCII "LOCAL CODE" wordmark (tiny embedded block font, gradient)
+    box.ts               shared box-drawing helpers (width/padding/borders)
+    boxSelect.ts          arrow-key boxed list picker (raw-mode; numbered-prompt fallback
+                          when stdin isn't a TTY), used for every provider/model/confirm menu
+    setup.ts              provider/model pickers + first-run wizard + hardware auto-bootstrap
+    render.ts             banner, streamed text, tool output
+    confirm.ts             tool-approval prompt
+  system/
+    hardware.ts            RAM/CPU profile + small-model size recommendation
+    ollama.ts               detect/start/pull helpers for a local Ollama install
   repl.ts, cli.ts, index.ts   interactive session + commander CLI wiring
 ```
