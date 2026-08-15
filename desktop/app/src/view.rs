@@ -25,12 +25,12 @@ fn workspace_view(state: &State) -> Element<'_, Message> {
 }
 
 fn section_label(label: &str) -> Element<'static, Message> {
-    text(label.to_string()).size(11).color(theme::TEXT_MUTED).into()
+    text(label.to_string()).size(11).color(theme::palette().text_muted).into()
 }
 
 fn sidebar_view(state: &State) -> Element<'_, Message> {
     let mut col = column![
-        text("LOCAL CODE").size(14).color(theme::ACCENT).font(Font { weight: iced::font::Weight::Bold, ..Font::DEFAULT }),
+        text("LOCAL CODE").size(14).color(theme::palette().accent).font(Font { weight: iced::font::Weight::Bold, ..Font::DEFAULT }),
         Space::new().height(20),
         section_label("PROJECTS"),
     ]
@@ -77,7 +77,7 @@ fn sidebar_view(state: &State) -> Element<'_, Message> {
                 .style(theme::ghost_button),
         );
     } else {
-        col = col.push(text("Add a project to start chatting.").size(12).color(theme::TEXT_MUTED));
+        col = col.push(text("Add a project to start chatting.").size(12).color(theme::palette().text_muted));
     }
 
     container(scrollable(col.spacing(4)).height(Length::Fill))
@@ -90,7 +90,7 @@ fn sidebar_view(state: &State) -> Element<'_, Message> {
 
 fn chat_panel_view(state: &State) -> Element<'_, Message> {
     let Some(chat_id) = state.workspace.active_chat.clone() else {
-        return container(text("Select or add a project to get started.").size(16).color(theme::TEXT_SECONDARY))
+        return container(text("Select or add a project to get started.").size(16).color(theme::palette().text_secondary))
             .width(Length::Fill)
             .height(Length::Fill)
             .center_x(Length::Fill)
@@ -101,7 +101,7 @@ fn chat_panel_view(state: &State) -> Element<'_, Message> {
     let chat_title = state.workspace.chat(&chat_id).map(|c| c.display_title()).unwrap_or_default();
 
     let header = row![
-        text(chat_title).size(15).color(theme::TEXT_PRIMARY),
+        text(chat_title).size(15).color(theme::palette().text_primary),
         Space::new().width(Length::Fill),
         checkbox(state.config.auto_approve).label("Auto-approve").on_toggle(Message::ToggleAutoApprove).size(14).text_size(13),
         button(text("Model").size(13))
@@ -125,7 +125,7 @@ fn chat_panel_view(state: &State) -> Element<'_, Message> {
             container(text(
                 "read_file, write_file, edit_file, list_dir, glob, grep, bash are available to the model. \
 Mutating tools ask for approval unless Auto-approve is on.",
-            ).size(13).color(theme::TEXT_SECONDARY))
+            ).size(13).color(theme::palette().text_secondary))
             .padding(12)
             .width(Length::Fill)
             .style(theme::banner_container),
@@ -133,7 +133,7 @@ Mutating tools ask for approval unless Auto-approve is on.",
     }
 
     if state.transcript.is_empty() {
-        body = body.push(text("Send a message to get started.").size(13).color(theme::TEXT_MUTED));
+        body = body.push(text("Send a message to get started.").size(13).color(theme::palette().text_muted));
     }
 
     for (idx, item) in state.transcript.iter().enumerate() {
@@ -164,7 +164,7 @@ Mutating tools ask for approval unless Auto-approve is on.",
 fn transcript_item_view(idx: usize, item: &TranscriptItem) -> Element<'_, Message> {
     match item {
         TranscriptItem::User(text_content) => container(
-            column![text("you").size(11).color(theme::ACCENT), text(text_content.clone()).size(14).color(theme::TEXT_PRIMARY)].spacing(6),
+            column![text("you").size(11).color(theme::palette().accent), text(text_content.clone()).size(14).color(theme::palette().text_primary)].spacing(6),
         )
         .padding(14)
         .width(Length::Fill)
@@ -172,20 +172,20 @@ fn transcript_item_view(idx: usize, item: &TranscriptItem) -> Element<'_, Messag
         .into(),
 
         TranscriptItem::Assistant { text: text_content, thinking, thinking_expanded, .. } => {
-            let mut col = column![text("assistant").size(11).color(theme::TEXT_SECONDARY)].spacing(6);
+            let mut col = column![text("assistant").size(11).color(theme::palette().text_secondary)].spacing(6);
             if !thinking.is_empty() {
                 col = col.push(
-                    button(text(if *thinking_expanded { "\u{25be} thinking" } else { "\u{25b8} thinking" }).size(12).color(theme::TEXT_MUTED))
+                    button(text(if *thinking_expanded { "\u{25be} thinking" } else { "\u{25b8} thinking" }).size(12).color(theme::palette().text_muted))
                         .on_press(Message::ToggleThinking(idx))
                         .style(theme::ghost_button)
                         .padding([4, 8]),
                 );
                 if *thinking_expanded {
-                    col = col.push(text(thinking.clone()).size(13).font(MONO).color(theme::TEXT_MUTED));
+                    col = col.push(text(thinking.clone()).size(13).font(MONO).color(theme::palette().text_muted));
                 }
             }
             if !text_content.is_empty() {
-                col = col.push(text(text_content.clone()).size(14).color(theme::TEXT_PRIMARY));
+                col = col.push(text(text_content.clone()).size(14).color(theme::palette().text_primary));
             }
             container(col).padding(14).width(Length::Fill).style(theme::card_container).into()
         }
@@ -193,13 +193,13 @@ fn transcript_item_view(idx: usize, item: &TranscriptItem) -> Element<'_, Messag
         TranscriptItem::Tool { name, args, output, approval } => {
             let is_error = output.as_ref().map(|(_, err)| *err).unwrap_or(false);
             let mut col = column![
-                text(format!("\u{1f527} {name}")).size(12).color(theme::ACCENT),
-                text(args_preview(args)).size(12).font(MONO).color(theme::TEXT_MUTED),
+                text(format!("\u{1f527} {name}")).size(12).color(theme::palette().accent),
+                text(args_preview(args)).size(12).font(MONO).color(theme::palette().text_muted),
             ]
             .spacing(6);
 
             if let Some((preview, _responder)) = approval {
-                col = col.push(text(preview.clone()).size(12).font(MONO).color(theme::TEXT_SECONDARY));
+                col = col.push(text(preview.clone()).size(12).font(MONO).color(theme::palette().text_secondary));
                 col = col.push(
                     row![
                         button(text("Approve").size(13)).on_press(Message::ApprovalChoice { approved: true, remember: false }).padding([6, 12]).style(theme::primary_button),
@@ -214,7 +214,7 @@ fn transcript_item_view(idx: usize, item: &TranscriptItem) -> Element<'_, Messag
             }
             if let Some((output, is_err)) = output {
                 let label = if *is_err { format!("error: {output}") } else { output.clone() };
-                col = col.push(text(label).size(12).font(MONO).color(if *is_err { theme::DANGER } else { theme::TEXT_SECONDARY }));
+                col = col.push(text(label).size(12).font(MONO).color(if *is_err { theme::palette().danger } else { theme::palette().text_secondary }));
             }
 
             let style = if is_error { theme::error_card_container } else { theme::card_container };
@@ -222,7 +222,7 @@ fn transcript_item_view(idx: usize, item: &TranscriptItem) -> Element<'_, Messag
         }
 
         TranscriptItem::Notice(n) => {
-            container(text(n.clone()).size(12).color(theme::TEXT_MUTED)).padding(10).width(Length::Fill).into()
+            container(text(n.clone()).size(12).color(theme::palette().text_muted)).padding(10).width(Length::Fill).into()
         }
     }
 }
@@ -233,19 +233,19 @@ fn args_preview(args: &serde_json::Map<String, serde_json::Value>) -> String {
 
 fn setup_view<'a>(setup_state: &'a SetupState, config: &'a LocalCodeConfig) -> Element<'a, Message> {
     let content: Element<'a, Message> = match setup_state {
-        SetupState::Probing => text("Checking for available models...").size(15).color(theme::TEXT_SECONDARY).into(),
+        SetupState::Probing => text("Checking for available models...").size(15).color(theme::palette().text_secondary).into(),
 
         SetupState::Bootstrap { hw, recommended, alternatives } => {
             let mut col = column![
-                text("Welcome to Local Code").size(24).color(theme::TEXT_PRIMARY),
-                text(format!("Your system: ~{} GB RAM, {} CPU cores.", hw.total_ram_gb.round() as i64, hw.cpu_cores)).size(13).color(theme::TEXT_SECONDARY),
+                text("Welcome to Local Code").size(24).color(theme::palette().text_primary),
+                text(format!("Your system: ~{} GB RAM, {} CPU cores.", hw.total_ram_gb.round() as i64, hw.cpu_cores)).size(13).color(theme::palette().text_secondary),
                 Space::new().height(8),
                 text(format!(
                     "Recommended: {} (~{} GB) \u{2014} {}",
                     recommended.name, recommended.approx_size_gb, recommended.description
                 ))
                 .size(14)
-                .color(theme::TEXT_PRIMARY),
+                .color(theme::palette().text_primary),
                 button(text(format!("Download {} (recommended)", recommended.name)).size(14))
                     .on_press(Message::Setup(SetupMessage::ChooseModel(recommended.name.to_string())))
                     .padding([10, 16])
@@ -270,17 +270,17 @@ fn setup_view<'a>(setup_state: &'a SetupState, config: &'a LocalCodeConfig) -> E
         }
 
         SetupState::Downloading { model, log } => {
-            let mut col = column![text(format!("Pulling {model}\u{2026}")).size(18).color(theme::TEXT_PRIMARY)].spacing(4);
+            let mut col = column![text(format!("Pulling {model}\u{2026}")).size(18).color(theme::palette().text_primary)].spacing(4);
             for line in log.iter().rev().take(20).rev() {
-                col = col.push(text(line.clone()).size(12).font(MONO).color(theme::TEXT_SECONDARY));
+                col = col.push(text(line.clone()).size(12).font(MONO).color(theme::palette().text_secondary));
             }
             scrollable(col).height(Length::Fill).into()
         }
 
         SetupState::PickProvider { info } => {
-            let mut col = column![text("Select a provider").size(20).color(theme::TEXT_PRIMARY)].spacing(8);
+            let mut col = column![text("Select a provider").size(20).color(theme::palette().text_primary)].spacing(8);
             if let Some(info) = info {
-                col = col.push(text(info.clone()).size(13).color(theme::WARNING));
+                col = col.push(text(info.clone()).size(13).color(theme::palette().warning));
             }
             for p in &config.providers {
                 col = col.push(
@@ -301,9 +301,9 @@ fn setup_view<'a>(setup_state: &'a SetupState, config: &'a LocalCodeConfig) -> E
         }
 
         SetupState::AddCustomProvider(form) => {
-            let mut col = column![text("Add a custom provider").size(20).color(theme::TEXT_PRIMARY)].spacing(10);
+            let mut col = column![text("Add a custom provider").size(20).color(theme::palette().text_primary)].spacing(10);
             if let Some(err) = &form.error {
-                col = col.push(text(err.clone()).size(13).color(theme::DANGER));
+                col = col.push(text(err.clone()).size(13).color(theme::palette().danger));
             }
             col = col.push(
                 row![
@@ -322,7 +322,7 @@ fn setup_view<'a>(setup_state: &'a SetupState, config: &'a LocalCodeConfig) -> E
                     Some(ProviderType::OpenAiCompatible) => "OpenAI-compatible",
                     None => "(pick one above)",
                 }
-            )).size(13).color(theme::TEXT_SECONDARY));
+            )).size(13).color(theme::palette().text_secondary));
             col = col.push(
                 text_input("Provider id (e.g. openai)", &form.id)
                     .padding(10)
@@ -360,12 +360,12 @@ fn setup_view<'a>(setup_state: &'a SetupState, config: &'a LocalCodeConfig) -> E
 
         SetupState::PickModel { provider, models, filter, loading } => {
             let mut col = column![
-                text(format!("Select a model ({})", provider.display_label())).size(20).color(theme::TEXT_PRIMARY),
+                text(format!("Select a model ({})", provider.display_label())).size(20).color(theme::palette().text_primary),
                 button(text("\u{2190} Back").size(13)).on_press(Message::Setup(SetupMessage::BackToProviders)).padding([6, 12]).style(theme::ghost_button),
             ]
             .spacing(8);
             if *loading {
-                col = col.push(text("Loading models\u{2026}").size(13).color(theme::TEXT_SECONDARY));
+                col = col.push(text("Loading models\u{2026}").size(13).color(theme::palette().text_secondary));
             } else {
                 if models.len() > 8 {
                     col = col.push(
@@ -389,9 +389,9 @@ fn setup_view<'a>(setup_state: &'a SetupState, config: &'a LocalCodeConfig) -> E
         }
 
         SetupState::ManualModel { provider, value, info } => {
-            let mut col = column![text(format!("Enter a model name for {}", provider.display_label())).size(20).color(theme::TEXT_PRIMARY)].spacing(10);
+            let mut col = column![text(format!("Enter a model name for {}", provider.display_label())).size(20).color(theme::palette().text_primary)].spacing(10);
             if let Some(info) = info {
-                col = col.push(text(info.clone()).size(13).color(theme::WARNING));
+                col = col.push(text(info.clone()).size(13).color(theme::palette().warning));
             }
             col = col.push(
                 text_input("Model name", value)
@@ -411,7 +411,7 @@ fn setup_view<'a>(setup_state: &'a SetupState, config: &'a LocalCodeConfig) -> E
         }
 
         SetupState::ConfirmSave { provider, model, save_default } => column![
-            text(format!("Ready: {} / {}", provider.display_label(), model)).size(20).color(theme::TEXT_PRIMARY),
+            text(format!("Ready: {} / {}", provider.display_label(), model)).size(20).color(theme::palette().text_primary),
             checkbox(*save_default).label("Save as my default provider/model").on_toggle(|v| Message::Setup(SetupMessage::SaveDefaultToggled(v))),
             button(text("Start chatting").size(14)).on_press(Message::Setup(SetupMessage::Finish)).padding([10, 16]).style(theme::primary_button),
         ]
