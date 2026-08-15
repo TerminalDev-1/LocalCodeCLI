@@ -1,15 +1,19 @@
 use crate::app_state::{Message, Screen, State, TranscriptItem};
 use crate::setup::{filtered_models, CustomProviderField, SetupMessage, SetupState};
 use crate::theme;
-use iced::widget::{button, checkbox, column, container, row, scrollable, text, text_input, Space};
-use iced::{Alignment, Element, Font, Length};
+use iced::widget::{button, checkbox, column, container, mouse_area, row, scrollable, stack, text, text_input, Space};
+use iced::alignment::{Horizontal, Vertical};
+use iced::{window, Alignment, Element, Font, Left, Length, Right, Top, Bottom};
 use local_code_core::types::{LocalCodeConfig, ProviderType};
 
 const SIDEBAR_WIDTH: f32 = 250.0;
 const MONO: Font = Font::MONOSPACE;
+const TITLEBAR_HEIGHT: f32 = 34.0;
+const RESIZE_BORDER: f32 = 5.0;
+const RESIZE_CORNER: f32 = 12.0;
 
 pub fn view(state: &State) -> Element<'_, Message> {
-    match &state.screen {
+    let content: Element<'_, Message> = match &state.screen {
         Screen::Setup(setup_state) => container(setup_view(setup_state, &state.config))
             .padding(28)
             .width(Length::Fill)
@@ -17,7 +21,93 @@ pub fn view(state: &State) -> Element<'_, Message> {
             .style(theme::panel_container)
             .into(),
         Screen::Workspace => workspace_view(state),
-    }
+    };
+    window_chrome(state, content)
+}
+
+/// Wraps the whole app in a custom title bar (since the window is undecorated — see
+/// `main.rs`) and an invisible resize border along every edge/corner, since losing the OS
+/// frame also loses the OS's drag-to-resize handling; `window::drag_resize` gets it back.
+fn window_chrome<'a>(state: &'a State, content: Element<'a, Message>) -> Element<'a, Message> {
+    let body = column![title_bar_view(state), content].width(Length::Fill).height(Length::Fill);
+
+    let corner = |direction: window::Direction, x: Horizontal, y: Vertical| -> Element<'a, Message> {
+        container(mouse_area(Space::new().width(RESIZE_CORNER).height(RESIZE_CORNER)).on_press(Message::WindowDragResize(direction)))
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .align_x(x)
+            .align_y(y)
+            .into()
+    };
+    let edge_x = |direction: window::Direction, y: Vertical| -> Element<'a, Message> {
+        container(mouse_area(Space::new().width(Length::Fill).height(RESIZE_BORDER)).on_press(Message::WindowDragResize(direction)))
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .align_y(y)
+            .into()
+    };
+    let edge_y = |direction: window::Direction, x: Horizontal| -> Element<'a, Message> {
+        container(mouse_area(Space::new().width(RESIZE_BORDER).height(Length::Fill)).on_press(Message::WindowDragResize(direction)))
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .align_x(x)
+            .into()
+    };
+
+    stack![
+        body,
+        edge_x(window::Direction::North, Top),
+        edge_x(window::Direction::South, Bottom),
+        edge_y(window::Direction::West, Left),
+        edge_y(window::Direction::East, Right),
+        corner(window::Direction::NorthWest, Left, Top),
+        corner(window::Direction::NorthEast, Right, Top),
+        corner(window::Direction::SouthWest, Left, Bottom),
+        corner(window::Direction::SouthEast, Right, Bottom),
+    ]
+    .into()
+}
+
+/// A custom, Cursor-style title bar: app glyph, a decorative menu strip (this app has no
+/// menu commands to back it yet), a draggable stretch of empty space in place of the OS's
+/// native drag region, and minimize/maximize/close glyph buttons.
+fn title_bar_view(_state: &State) -> Element<'_, Message> {
+    let menu_label = |label: &'static str| text(label).size(13).color(theme::palette().text_muted);
+
+    let drag_zone = mouse_area(
+        row![
+            text("\u{25c9}").size(13).color(theme::palette().accent),
+            menu_label("File"),
+            menu_label("Edit"),
+            menu_label("View"),
+            menu_label("Help"),
+            Space::new().width(Length::Fill),
+        ]
+        .spacing(16)
+        .align_y(Alignment::Center)
+        .padding([0, 12])
+        .width(Length::Fill),
+    )
+    .on_press(Message::TitleBarDragged);
+
+    let control = |glyph: &'static str, is_close: bool, on_press: Message| {
+        button(text(glyph).size(13))
+            .on_press(on_press)
+            .padding([8, 16])
+            .style(theme::window_control_button(is_close))
+    };
+
+    let controls = row![
+        control("\u{2500}", false, Message::WindowMinimize),
+        control("\u{25a1}", false, Message::WindowToggleMaximize),
+        control("\u{2715}", true, Message::WindowClose),
+    ];
+
+    container(row![drag_zone, controls].align_y(Alignment::Center).width(Length::Fill))
+        .width(Length::Fill)
+        .height(Length::Fixed(TITLEBAR_HEIGHT))
+        .style(theme::titlebar_container)
+        .into()
 }
 
 fn workspace_view(state: &State) -> Element<'_, Message> {
@@ -113,10 +203,6 @@ fn chat_panel_view(state: &State) -> Element<'_, Message> {
         text(chat_title).size(15).color(theme::palette().text_primary),
         Space::new().width(Length::Fill),
         checkbox(state.config.auto_approve).label("Auto-approve").on_toggle(Message::ToggleAutoApprove).size(14).text_size(13),
-        button(text("Model").size(13))
-            .on_press(Message::OpenProviderPicker)
-            .padding([6, 12])
-            .style(theme::ghost_button),
         button(text("Clear").size(13)).on_press(Message::ClearConversation).padding([6, 12]).style(theme::ghost_button),
         button(text(if state.show_help { "Hide help" } else { "Help" }).size(13))
             .on_press(Message::ShowHelp(!state.show_help))
@@ -171,9 +257,14 @@ fn composer_card<'a>(input: &'a str, placeholder: &'static str, model_label: Str
     let has_text = !input.trim().is_empty();
     let toolbar = row![
         button(text("+").size(16)).padding([6, 12]).style(theme::composer_ring_button),
-        row![text(model_label).size(12).color(theme::palette().text_muted), text("\u{1f512}").size(10).color(theme::palette().text_muted)]
-            .spacing(6)
-            .align_y(Alignment::Center),
+        button(
+            row![text(model_label).size(12).color(theme::palette().text_muted), text("\u{1f512}").size(10).color(theme::palette().text_muted)]
+                .spacing(6)
+                .align_y(Alignment::Center),
+        )
+        .on_press_maybe(can_type.then_some(Message::OpenProviderPicker))
+        .padding([4, 8])
+        .style(theme::icon_button),
         Space::new().width(Length::Fill),
         button(text(if busy { "\u{22ef}" } else if has_text { "\u{2191}" } else { "\u{1f3a4}" }).size(14))
             .on_press_maybe(if can_type && has_text { Some(Message::Submit) } else { None })

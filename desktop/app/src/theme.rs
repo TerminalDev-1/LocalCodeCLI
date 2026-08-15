@@ -288,6 +288,33 @@ pub fn composer_send_button(_theme: &Theme, status: button::Status) -> button::S
     }
 }
 
+/// The custom title bar strip — flat, one shade off the sidebar, with a hairline seam
+/// against the content below it instead of a shadow (a real title bar doesn't float).
+pub fn titlebar_container(_theme: &Theme) -> container::Style {
+    let p = palette();
+    container::Style {
+        text_color: Some(p.text_secondary),
+        background: Some(Background::Color(p.bg_sidebar)),
+        border: Border { color: alpha(p.shadow, 0.12), width: 1.0, radius: 0.0.into() },
+        shadow: no_shadow(),
+        snap: false,
+    }
+}
+
+/// A window-control glyph (minimize/maximize/close) in the title bar — flat until
+/// hovered, then close turns danger-red like every other OS's title bar does.
+pub fn window_control_button(is_close: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
+    move |_theme, status| {
+        let p = palette();
+        let (background, text_color) = match status {
+            button::Status::Hovered | button::Status::Pressed if is_close => (p.danger, Color::WHITE),
+            button::Status::Hovered | button::Status::Pressed => (alpha(p.bg_row_hover, 0.9), p.text_primary),
+            _ => (Color::TRANSPARENT, p.text_secondary),
+        };
+        button::Style { background: Some(Background::Color(background)), text_color, border: Border::default(), shadow: no_shadow(), snap: false }
+    }
+}
+
 /// A minimal filled pill for secondary actions (header icons, cancel, back).
 pub fn ghost_button(_theme: &Theme, status: button::Status) -> button::Style {
     let p = palette();

@@ -8,6 +8,8 @@ use local_code_core::config::load_config;
 use local_code_core::providers::registry::create_provider;
 use local_code_core::tools::registry::all_tools;
 use local_code_core::types::{LocalCodeConfig, Message as CoreMessage, Provider, ProviderConfig, Role};
+use iced::window;
+use iced::Subscription;
 use serde_json::{Map, Value};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -35,6 +37,7 @@ pub struct State {
     pub busy: bool,
     pub session_auto_approve: bool,
     pub show_help: bool,
+    pub window_id: Option<window::Id>,
     mid_session_setup: bool,
     last_picked: Option<(ProviderConfig, String)>,
 }
@@ -58,6 +61,12 @@ pub enum Message {
     SelectProject(String),
     NewChat,
     SelectChat(String),
+    WindowEvent(window::Id, window::Event),
+    TitleBarDragged,
+    WindowMinimize,
+    WindowToggleMaximize,
+    WindowClose,
+    WindowDragResize(window::Direction),
 }
 
 impl State {
@@ -73,6 +82,7 @@ impl State {
             busy: false,
             session_auto_approve: false,
             show_help: false,
+            window_id: None,
             mid_session_setup: false,
             last_picked: None,
         };
@@ -85,6 +95,13 @@ impl State {
             Some(p) => format!("Local Code — {}", p.name),
             None => "Local Code".to_string(),
         }
+    }
+
+    /// Tracks the window's id (handed to us via the `Opened` event, since the default
+    /// window an `iced::application` opens at startup doesn't hand back its id directly)
+    /// so title-bar drag/minimize/maximize/close/resize can address it.
+    pub fn subscription(&self) -> Subscription<Message> {
+        window::events().map(|(id, event)| Message::WindowEvent(id, event))
     }
 
     pub fn update(&mut self, message: Message) -> Task<Message> {
@@ -248,12 +265,28 @@ impl State {
                 self.activate_chat(&id);
                 Task::none()
             }
+
+            Message::WindowEvent(id, event) => {
+                if matches!(event, window::Event::Opened { .. }) {
+                    self.window_id = Some(id);
+                }
+                Task::none()
+            }
+            Message::TitleBarDragged => self.window_id.map(window::drag).unwrap_or_else(Task::none),
+            Message::WindowMinimize => self.window_id.map(|id| window::minimize(id, true)).unwrap_or_else(Task::none),
+            Message::WindowToggleMaximize => self.window_id.map(window::toggle_maximize).unwrap_or_else(Task::none),
+            Message::WindowClose => self.window_id.map(window::close).unwrap_or_else(Task::none),
+            Message::WindowDragResize(direction) => self.window_id.map(|id| window::drag_resize(id, direction)).unwrap_or_else(Task::none),
         }
     }
 
+    /// Enters the setup flow. On first run (`mid_session: false`) there's no config yet,
+    /// so it starts by probing for a reachable provider. Mid-session (the composer's model
+    /// picker), providers are already configured — jumping straight to `PickProvider` skips
+    /// that probe, which used to leave the screen stuck on "Checking for available models..."
+    /// forever, since nothing ever kicked off `probe_task` for this entry point.
     fn enter_setup(&mut self, mid_session: bool) {
-        let (state, _task) = setup::start();
-        self.screen = Screen::Setup(state);
+        self.screen = Screen::Setup(if mid_session { SetupState::PickProvider { info: None } } else { SetupState::Probing });
         self.mid_session_setup = mid_session;
     }
 

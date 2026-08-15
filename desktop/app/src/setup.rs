@@ -76,10 +76,6 @@ pub enum SetupOutcome {
     Finished { provider: ProviderConfig, model: String },
 }
 
-pub fn start() -> (SetupState, Task<Message>) {
-    (SetupState::Probing, Task::none())
-}
-
 pub fn probe_task(config: LocalCodeConfig) -> Task<Message> {
     Task::perform(probe_any_provider(config), |any| Message::Setup(SetupMessage::ProbeDone(any)))
 }
