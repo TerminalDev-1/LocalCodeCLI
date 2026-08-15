@@ -28,76 +28,85 @@ fn section_label(label: &str) -> Element<'static, Message> {
     text(label.to_string()).size(11).color(theme::palette().text_muted).into()
 }
 
-fn sidebar_view(state: &State) -> Element<'_, Message> {
-    let mut col = column![
-        text("LOCAL CODE").size(14).color(theme::palette().accent).font(Font { weight: iced::font::Weight::Bold, ..Font::DEFAULT }),
-        Space::new().height(20),
-        section_label("PROJECTS"),
+fn section_header(label: &str, on_add: Option<Message>) -> Element<'_, Message> {
+    row![
+        section_label(label),
+        Space::new().width(Length::Fill),
+        button(text("+").size(15)).on_press_maybe(on_add).padding([0, 8]).style(theme::icon_button),
     ]
-    .spacing(4)
-    .width(Length::Fixed(SIDEBAR_WIDTH));
+    .align_y(Alignment::Center)
+    .into()
+}
 
+fn nav_row<'a>(icon: &'static str, label: String, active: bool, on_press: Message) -> Element<'a, Message> {
+    button(row![text(icon).size(13), text(label).size(14)].spacing(10).align_y(Alignment::Center))
+        .on_press(on_press)
+        .width(Length::Fill)
+        .padding([7, 10])
+        .style(theme::nav_row(active))
+        .into()
+}
+
+fn sidebar_view(state: &State) -> Element<'_, Message> {
+    let brand = row![
+        text("\u{25c9}").size(14).color(theme::palette().accent),
+        text("Local Code").size(15).color(theme::palette().text_primary).font(Font { weight: iced::font::Weight::Bold, ..Font::DEFAULT }),
+    ]
+    .spacing(8)
+    .align_y(Alignment::Center);
+
+    let mut list = column![section_header("PROJECTS", if state.busy { None } else { Some(Message::AddProjectPressed) })].spacing(2);
+
+    if state.workspace.projects.is_empty() {
+        list = list.push(text("No projects yet.").size(12).color(theme::palette().text_muted));
+    }
     for p in &state.workspace.projects {
         let active = state.workspace.active_project.as_deref() == Some(p.id.as_str());
-        col = col.push(
-            button(text(p.name.clone()).size(14))
-                .on_press(Message::SelectProject(p.id.clone()))
-                .width(Length::Fill)
-                .padding([8, 10])
-                .style(theme::sidebar_row(active)),
-        );
+        list = list.push(nav_row("\u{1f4c1}", p.name.clone(), active, Message::SelectProject(p.id.clone())));
     }
-    col = col.push(
-        button(text("+ Add project").size(13))
-            .on_press_maybe(if state.busy { None } else { Some(Message::AddProjectPressed) })
-            .width(Length::Fill)
-            .padding([8, 10])
-            .style(theme::ghost_button),
-    );
 
-    col = col.push(Space::new().height(20));
-    col = col.push(section_label("CHATS"));
+    list = list.push(Space::new().height(18));
+    let can_add_chat = state.workspace.active_project.is_some() && !state.busy;
+    list = list.push(section_header("CHATS", if can_add_chat { Some(Message::NewChat) } else { None }));
 
     if let Some(project_id) = state.workspace.active_project.clone() {
-        for c in state.workspace.chats_for_project(&project_id) {
-            let active = state.workspace.active_chat.as_deref() == Some(c.id.as_str());
-            col = col.push(
-                button(text(c.display_title()).size(14))
-                    .on_press(Message::SelectChat(c.id.clone()))
-                    .width(Length::Fill)
-                    .padding([8, 10])
-                    .style(theme::sidebar_row(active)),
-            );
+        let chats = state.workspace.chats_for_project(&project_id);
+        if chats.is_empty() {
+            list = list.push(text("No chats yet.").size(12).color(theme::palette().text_muted));
         }
-        col = col.push(
-            button(text("+ New chat").size(13))
-                .on_press_maybe(if state.busy { None } else { Some(Message::NewChat) })
-                .width(Length::Fill)
-                .padding([8, 10])
-                .style(theme::ghost_button),
-        );
+        for c in chats {
+            let active = state.workspace.active_chat.as_deref() == Some(c.id.as_str());
+            list = list.push(nav_row("\u{1f4ac}", c.display_title(), active, Message::SelectChat(c.id.clone())));
+        }
     } else {
-        col = col.push(text("Add a project to start chatting.").size(12).color(theme::palette().text_muted));
+        list = list.push(text("Select a project first.").size(12).color(theme::palette().text_muted));
     }
 
-    container(scrollable(col.spacing(4)).height(Length::Fill))
-        .width(Length::Fixed(SIDEBAR_WIDTH))
-        .height(Length::Fill)
-        .padding(16)
-        .style(theme::sidebar_container)
-        .into()
+    let footer = row![
+        text("\u{2699}").size(13).color(theme::palette().text_muted),
+        text(if state.config.default_model.is_empty() {
+            "No default model".to_string()
+        } else {
+            format!("{} / {}", state.config.default_provider, state.config.default_model)
+        })
+        .size(11)
+        .color(theme::palette().text_muted),
+    ]
+    .spacing(8)
+    .align_y(Alignment::Center);
+
+    let content = column![brand, Space::new().height(16), scrollable(list).height(Length::Fill), Space::new().height(12), footer].width(Length::Fixed(SIDEBAR_WIDTH));
+
+    container(content).width(Length::Fixed(SIDEBAR_WIDTH)).height(Length::Fill).padding(16).style(theme::sidebar_container).into()
 }
 
 fn chat_panel_view(state: &State) -> Element<'_, Message> {
     let Some(chat_id) = state.workspace.active_chat.clone() else {
-        return container(text("Select or add a project to get started.").size(16).color(theme::palette().text_secondary))
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .center_x(Length::Fill)
-            .center_y(Length::Fill)
-            .style(theme::panel_container)
-            .into();
+        return empty_state_view(state, None);
     };
+    if state.transcript.is_empty() {
+        return empty_state_view(state, Some(&chat_id));
+    }
     let chat_title = state.workspace.chat(&chat_id).map(|c| c.display_title()).unwrap_or_default();
 
     let header = row![
@@ -159,6 +168,91 @@ Mutating tools ask for approval unless Auto-approve is on.",
     .align_y(Alignment::Center);
 
     container(column![header, transcript, input_row]).width(Length::Fill).height(Length::Fill).style(theme::panel_container).into()
+}
+
+const COMPOSER_WIDTH: f32 = 560.0;
+
+/// The centered "nothing here yet" screen — shown with no project, no chat, or a chat
+/// with no messages yet. Mirrors Cursor's landing composer: a breadcrumb, a big rounded
+/// input with an attached toolbar, and a handful of suggestion rows underneath.
+fn empty_state_view<'a>(state: &'a State, chat_id: Option<&str>) -> Element<'a, Message> {
+    let project = state.workspace.active_project.as_deref().and_then(|id| state.workspace.project(id));
+    let breadcrumb = row![
+        text("\u{1f5b5}").size(13).color(theme::palette().text_muted),
+        text(project.map(|p| p.name.clone()).unwrap_or_else(|| "No project selected".to_string())).size(13).color(theme::palette().text_secondary),
+    ]
+    .spacing(6)
+    .align_y(Alignment::Center);
+
+    let can_type = chat_id.is_some() && !state.busy;
+    let model_label = chat_id
+        .and_then(|id| state.workspace.chat(id))
+        .map(|c| format!("{} / {}", c.provider_id, c.model))
+        .unwrap_or_else(|| "No chat yet".to_string());
+
+    let composer = container(
+        column![
+            text_input("Plan, build, or ask anything\u{2026}", &state.input)
+                .on_input(Message::InputChanged)
+                .on_submit(Message::Submit)
+                .style(theme::bare_input)
+                .size(15)
+                .width(Length::Fill),
+            row![
+                text(model_label).size(12).color(theme::palette().text_muted),
+                Space::new().width(Length::Fill),
+                button(text(if state.busy { "Working\u{2026}" } else { "Send" }).size(13))
+                    .on_press_maybe(if can_type && !state.input.trim().is_empty() { Some(Message::Submit) } else { None })
+                    .padding([6, 16])
+                    .style(theme::primary_button),
+            ]
+            .align_y(Alignment::Center),
+        ]
+        .spacing(14),
+    )
+    .padding(20)
+    .width(Length::Fixed(COMPOSER_WIDTH))
+    .style(theme::card_container);
+
+    let suggestions: Vec<(&str, &str, &str, Message)> = if project.is_none() {
+        vec![("\u{1f4c1}", "Add a project", "Pick a folder to start working in", Message::AddProjectPressed)]
+    } else if chat_id.is_none() {
+        vec![("\u{1f4ac}", "New chat", "Start a conversation in this project", Message::NewChat)]
+    } else {
+        vec![
+            ("\u{1f50d}", "Explain this codebase", "Get a walkthrough of the project structure", Message::UseSuggestion("Explain this codebase to me.".to_string())),
+            ("\u{1f41b}", "Find and fix a bug", "Point at a problem and let the agent dig in", Message::UseSuggestion("Help me find and fix a bug in this project.".to_string())),
+            ("\u{2728}", "Add a feature", "Describe what you want built", Message::UseSuggestion("Help me add a new feature to this project.".to_string())),
+        ]
+    };
+
+    let mut suggestion_list = column![].spacing(2);
+    for (icon, title, desc, message) in suggestions {
+        suggestion_list = suggestion_list.push(suggestion_row(icon, title, desc, message));
+    }
+
+    let center = column![breadcrumb, Space::new().height(16), composer, Space::new().height(22), container(suggestion_list).width(Length::Fixed(COMPOSER_WIDTH))]
+        .align_x(Alignment::Center);
+
+    container(center).width(Length::Fill).height(Length::Fill).center_x(Length::Fill).center_y(Length::Fill).style(theme::panel_container).into()
+}
+
+fn suggestion_row<'a>(icon: &'static str, title: &'static str, desc: &'static str, message: Message) -> Element<'a, Message> {
+    button(
+        row![
+            text(icon).size(16),
+            column![text(title).size(13).color(theme::palette().text_primary), text(desc).size(12).color(theme::palette().text_muted)].spacing(2),
+            Space::new().width(Length::Fill),
+            text("\u{203a}").size(14).color(theme::palette().text_muted),
+        ]
+        .spacing(12)
+        .align_y(Alignment::Center),
+    )
+    .on_press(message)
+    .padding([10, 12])
+    .width(Length::Fill)
+    .style(theme::nav_row(false))
+    .into()
 }
 
 fn transcript_item_view(idx: usize, item: &TranscriptItem) -> Element<'_, Message> {

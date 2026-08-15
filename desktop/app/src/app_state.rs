@@ -44,6 +44,7 @@ pub enum Message {
     Setup(SetupMessage),
     ConfigLoaded(LocalCodeConfig),
     InputChanged(String),
+    UseSuggestion(String),
     Submit,
     Agent(AppAgentEvent),
     ApprovalChoice { approved: bool, remember: bool },
@@ -121,6 +122,11 @@ impl State {
             }
 
             Message::InputChanged(text) => {
+                self.input = text;
+                Task::none()
+            }
+
+            Message::UseSuggestion(text) => {
                 self.input = text;
                 Task::none()
             }

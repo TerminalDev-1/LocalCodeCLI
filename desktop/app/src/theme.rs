@@ -157,25 +157,50 @@ pub fn banner_container(_theme: &Theme) -> container::Style {
     }
 }
 
-/// A project/chat row in the sidebar. `active` highlights the currently-selected item.
-pub fn sidebar_row(active: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
+/// A flat nav/list row (sidebar items, suggestion rows) — no outline, just a soft
+/// highlight on hover/active, closer to Cursor's plain list style than a filled button.
+pub fn nav_row(active: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
     move |_theme, status| {
         let p = palette();
         let background = if active {
-            alpha(p.bg_row_active, 0.9)
+            alpha(p.bg_row_active, 0.75)
         } else {
             match status {
-                button::Status::Hovered | button::Status::Pressed => alpha(p.bg_row_hover, 0.85),
+                button::Status::Hovered | button::Status::Pressed => alpha(p.bg_row_hover, 0.7),
                 _ => Color::TRANSPARENT,
             }
         };
         button::Style {
             background: Some(Background::Color(background)),
             text_color: if active { p.text_primary } else { p.text_secondary },
-            border: Border { radius: PILL.into(), ..Border::default() },
+            border: Border { radius: 10.0.into(), ..Border::default() },
             shadow: no_shadow(),
             snap: false,
         }
+    }
+}
+
+/// A small icon-only affordance — the "+" next to a section header, a filter icon, etc.
+pub fn icon_button(_theme: &Theme, status: button::Status) -> button::Style {
+    let p = palette();
+    let background = match status {
+        button::Status::Hovered | button::Status::Pressed => alpha(p.bg_row_hover, 0.9),
+        _ => Color::TRANSPARENT,
+    };
+    button::Style { background: Some(Background::Color(background)), text_color: p.text_secondary, border: Border { radius: 8.0.into(), ..Border::default() }, shadow: no_shadow(), snap: false }
+}
+
+/// A borderless, backgroundless field — used inside a card that already supplies its own
+/// pill shape (the empty-state composer), so the input itself shouldn't draw a second one.
+pub fn bare_input(_theme: &Theme, _status: text_input::Status) -> text_input::Style {
+    let p = palette();
+    text_input::Style {
+        background: Background::Color(Color::TRANSPARENT),
+        border: Border::default(),
+        icon: p.text_secondary,
+        placeholder: p.text_muted,
+        value: p.text_primary,
+        selection: alpha(p.accent, 0.35),
     }
 }
 
