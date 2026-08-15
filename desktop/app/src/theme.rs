@@ -251,6 +251,43 @@ pub fn input_field(_theme: &Theme, status: text_input::Status) -> text_input::St
     }
 }
 
+/// A round, outlined affordance for a composer toolbar (the "+" attach button) — a faint
+/// ring that fills in gently on hover, sized as a circle rather than a rectangle.
+pub fn composer_ring_button(_theme: &Theme, status: button::Status) -> button::Style {
+    let p = palette();
+    let background = match status {
+        button::Status::Hovered | button::Status::Pressed => alpha(p.bg_row_hover, 0.9),
+        _ => Color::TRANSPARENT,
+    };
+    button::Style {
+        background: Some(Background::Color(background)),
+        text_color: p.text_secondary,
+        border: Border { color: alpha(p.text_muted, 0.45), width: 1.0, radius: PILL.into() },
+        shadow: no_shadow(),
+        snap: false,
+    }
+}
+
+/// A solid, filled circle — the composer's mic/send button, high-contrast against the card
+/// it sits on so it reads as the one primary action in the toolbar (mirrors Cursor's round
+/// send button, which swaps between a mic glyph and an arrow depending on input state).
+pub fn composer_send_button(_theme: &Theme, status: button::Status) -> button::Style {
+    let p = palette();
+    let background = match status {
+        button::Status::Hovered => alpha(p.text_primary, 0.85),
+        button::Status::Pressed => alpha(p.text_primary, 0.7),
+        button::Status::Disabled => alpha(p.text_muted, 0.3),
+        button::Status::Active => p.text_primary,
+    };
+    button::Style {
+        background: Some(Background::Color(background)),
+        text_color: p.bg_panel,
+        border: Border { radius: PILL.into(), ..Border::default() },
+        shadow: no_shadow(),
+        snap: false,
+    }
+}
+
 /// A minimal filled pill for secondary actions (header icons, cancel, back).
 pub fn ghost_button(_theme: &Theme, status: button::Status) -> button::Style {
     let p = palette();

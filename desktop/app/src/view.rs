@@ -151,23 +151,49 @@ Mutating tools ask for approval unless Auto-approve is on.",
 
     let transcript = scrollable(body).height(Length::Fill).width(Length::Fill);
 
-    let input_row = row![
-        text_input("Message Local Code\u{2026}", &state.input)
-            .on_input(Message::InputChanged)
-            .on_submit(Message::Submit)
-            .padding([12, 18])
-            .style(theme::input_field)
-            .width(Length::Fill),
-        button(text(if state.busy { "Working\u{2026}" } else { "Send" }).size(14))
-            .on_press_maybe(if state.busy { None } else { Some(Message::Submit) })
-            .padding([10, 18])
-            .style(theme::primary_button),
-    ]
-    .spacing(10)
-    .padding([16, 20])
-    .align_y(Alignment::Center);
+    let chat_model_label = state
+        .workspace
+        .chat(&chat_id)
+        .map(|c| format!("{} / {}", c.provider_id, c.model))
+        .unwrap_or_else(|| "No model".to_string());
+    let input_row = container(composer_card(&state.input, "Message Local Code\u{2026}", chat_model_label, !state.busy, state.busy, Length::Fill))
+        .padding(iced::Padding { top: 0.0, right: 20.0, bottom: 20.0, left: 20.0 })
+        .width(Length::Fill);
 
     container(column![header, transcript, input_row]).width(Length::Fill).height(Length::Fill).style(theme::panel_container).into()
+}
+
+/// The composer used both on the empty-state landing screen and docked under an active
+/// chat: a rounded card holding the message field with a toolbar underneath it — a "+"
+/// attach affordance, the current model (with a lock glyph, matching Cursor's composer),
+/// and a round send/mic button that swaps glyphs depending on whether there's input.
+fn composer_card<'a>(input: &'a str, placeholder: &'static str, model_label: String, can_type: bool, busy: bool, width: Length) -> Element<'a, Message> {
+    let has_text = !input.trim().is_empty();
+    let toolbar = row![
+        button(text("+").size(16)).padding([6, 12]).style(theme::composer_ring_button),
+        row![text(model_label).size(12).color(theme::palette().text_muted), text("\u{1f512}").size(10).color(theme::palette().text_muted)]
+            .spacing(6)
+            .align_y(Alignment::Center),
+        Space::new().width(Length::Fill),
+        button(text(if busy { "\u{22ef}" } else if has_text { "\u{2191}" } else { "\u{1f3a4}" }).size(14))
+            .on_press_maybe(if can_type && has_text { Some(Message::Submit) } else { None })
+            .padding([8, 10])
+            .style(theme::composer_send_button),
+    ]
+    .spacing(10)
+    .align_y(Alignment::Center);
+
+    container(
+        column![
+            text_input(placeholder, input).on_input(Message::InputChanged).on_submit(Message::Submit).style(theme::bare_input).size(15).width(Length::Fill),
+            toolbar,
+        ]
+        .spacing(14),
+    )
+    .padding(16)
+    .width(width)
+    .style(theme::card_container)
+    .into()
 }
 
 const COMPOSER_WIDTH: f32 = 560.0;
@@ -177,12 +203,16 @@ const COMPOSER_WIDTH: f32 = 560.0;
 /// input with an attached toolbar, and a handful of suggestion rows underneath.
 fn empty_state_view<'a>(state: &'a State, chat_id: Option<&str>) -> Element<'a, Message> {
     let project = state.workspace.active_project.as_deref().and_then(|id| state.workspace.project(id));
+    let breadcrumb_chip = |icon: &'static str, label: String| {
+        container(row![text(icon).size(12).color(theme::palette().text_muted), text(label).size(13).color(theme::palette().text_secondary)].spacing(6).align_y(Alignment::Center))
+            .padding([6, 14])
+            .style(theme::card_container)
+    };
     let breadcrumb = row![
-        text("\u{1f5b5}").size(13).color(theme::palette().text_muted),
-        text(project.map(|p| p.name.clone()).unwrap_or_else(|| "No project selected".to_string())).size(13).color(theme::palette().text_secondary),
+        breadcrumb_chip("\u{1f5b5}", project.map(|p| p.name.clone()).unwrap_or_else(|| "No project".to_string())),
+        breadcrumb_chip("\u{1f4bb}", "This PC".to_string()),
     ]
-    .spacing(6)
-    .align_y(Alignment::Center);
+    .spacing(8);
 
     let can_type = chat_id.is_some() && !state.busy;
     let model_label = chat_id
@@ -190,29 +220,7 @@ fn empty_state_view<'a>(state: &'a State, chat_id: Option<&str>) -> Element<'a, 
         .map(|c| format!("{} / {}", c.provider_id, c.model))
         .unwrap_or_else(|| "No chat yet".to_string());
 
-    let composer = container(
-        column![
-            text_input("Plan, build, or ask anything\u{2026}", &state.input)
-                .on_input(Message::InputChanged)
-                .on_submit(Message::Submit)
-                .style(theme::bare_input)
-                .size(15)
-                .width(Length::Fill),
-            row![
-                text(model_label).size(12).color(theme::palette().text_muted),
-                Space::new().width(Length::Fill),
-                button(text(if state.busy { "Working\u{2026}" } else { "Send" }).size(13))
-                    .on_press_maybe(if can_type && !state.input.trim().is_empty() { Some(Message::Submit) } else { None })
-                    .padding([6, 16])
-                    .style(theme::primary_button),
-            ]
-            .align_y(Alignment::Center),
-        ]
-        .spacing(14),
-    )
-    .padding(20)
-    .width(Length::Fixed(COMPOSER_WIDTH))
-    .style(theme::card_container);
+    let composer = composer_card(&state.input, "Plan, Build, / for skills, @ for context", model_label, can_type, state.busy, Length::Fixed(COMPOSER_WIDTH));
 
     let suggestions: Vec<(&str, &str, &str, Message)> = if project.is_none() {
         vec![("\u{1f4c1}", "Add a project", "Pick a folder to start working in", Message::AddProjectPressed)]
