@@ -1,15 +1,42 @@
 import { execFile, spawn } from "node:child_process";
+import { join } from "node:path";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 
-export async function isOllamaInstalled(): Promise<boolean> {
-  try {
-    await execFileAsync("ollama", ["--version"]);
-    return true;
-  } catch {
-    return false;
+// On Windows, a plain `ollama` lookup can miss even when the app works fine from an
+// interactive shell — PATH picked up by an installer often isn't visible to a process
+// that was already running, and CreateProcess's PATH search doesn't always match what
+// cmd.exe resolves. Fall back to the installer's default locations before giving up.
+function ollamaCandidates(): string[] {
+  const candidates = ["ollama"];
+  if (process.platform === "win32") {
+    if (process.env.LOCALAPPDATA) candidates.push(join(process.env.LOCALAPPDATA, "Programs", "Ollama", "ollama.exe"));
+    if (process.env.ProgramFiles) candidates.push(join(process.env.ProgramFiles, "Ollama", "ollama.exe"));
+  } else {
+    candidates.push("/usr/local/bin/ollama", "/opt/homebrew/bin/ollama");
   }
+  return candidates;
+}
+
+let resolvedOllamaPath: string | undefined;
+
+async function resolveOllamaPath(): Promise<string | undefined> {
+  if (resolvedOllamaPath) return resolvedOllamaPath;
+  for (const candidate of ollamaCandidates()) {
+    try {
+      await execFileAsync(candidate, ["--version"], { shell: process.platform === "win32" });
+      resolvedOllamaPath = candidate;
+      return candidate;
+    } catch {
+      // try the next candidate
+    }
+  }
+  return undefined;
+}
+
+export async function isOllamaInstalled(): Promise<boolean> {
+  return (await resolveOllamaPath()) !== undefined;
 }
 
 export async function isOllamaReachable(baseUrl: string): Promise<boolean> {
@@ -22,8 +49,13 @@ export async function isOllamaReachable(baseUrl: string): Promise<boolean> {
 }
 
 /** Starts `ollama serve` detached from this process; caller should poll with waitForOllama. */
-export function startOllamaServer(): void {
-  const child = spawn("ollama", ["serve"], { detached: true, stdio: "ignore" });
+export async function startOllamaServer(): Promise<void> {
+  const ollamaPath = (await resolveOllamaPath()) ?? "ollama";
+  const child = spawn(ollamaPath, ["serve"], {
+    detached: true,
+    stdio: "ignore",
+    shell: process.platform === "win32",
+  });
   child.unref();
 }
 
@@ -37,9 +69,13 @@ export async function waitForOllama(baseUrl: string, timeoutMs = 8000): Promise<
 }
 
 /** Runs `ollama pull <model>` with inherited stdio so Ollama's own progress bar shows through. */
-export function pullModel(modelName: string): Promise<boolean> {
+export async function pullModel(modelName: string): Promise<boolean> {
+  const ollamaPath = (await resolveOllamaPath()) ?? "ollama";
   return new Promise((resolve) => {
-    const child = spawn("ollama", ["pull", modelName], { stdio: "inherit" });
+    const child = spawn(ollamaPath, ["pull", modelName], {
+      stdio: "inherit",
+      shell: process.platform === "win32",
+    });
     child.on("exit", (code) => resolve(code === 0));
     child.on("error", () => resolve(false));
   });

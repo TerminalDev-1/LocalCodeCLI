@@ -6,7 +6,8 @@ import { allTools } from "./tools/registry.js";
 import { buildSystemPrompt } from "./agent/systemPrompt.js";
 import { runAgentTurn } from "./agent/loop.js";
 import { confirmMutatingTool as confirmMutatingToolUI } from "./ui/confirm.js";
-import { pickModel, pickProvider } from "./ui/setup.js";
+import { pickModel, pickProvider, runSetupWizard } from "./ui/setup.js";
+import { saveConfig } from "./config.js";
 import { closeFallbackSelectInterface } from "./ui/boxSelect.js";
 import { boxBottom, boxTop, boxWidth } from "./ui/box.js";
 import {
@@ -27,6 +28,7 @@ const HELP_TEXT = `Commands:
   /provider        pick a provider (interactive)
   /provider <id>   switch provider directly, by id
   /models          list models available from the current provider
+  /onboarding      rerun the first-run setup wizard (hardware check + model picker)
   /clear           clear conversation history
   /help            show this help
   /exit, /quit     exit`;
@@ -233,6 +235,17 @@ export async function startRepl(opts: ReplOptions): Promise<void> {
           const pickedModel = await withPausedRl(() => pickModel(providerConfig));
           if (pickedModel) {
             model = pickedModel;
+          }
+          break;
+        }
+
+        case "/onboarding": {
+          const picked = await withPausedRl(() => runSetupWizard(opts.config, saveConfig));
+          if (picked) {
+            providerId = picked.providerConfig.id;
+            provider = resolveProvider(opts.config, providerId);
+            model = picked.model;
+            printNotice(`Switched to ${provider.label} / ${model}`);
           }
           break;
         }

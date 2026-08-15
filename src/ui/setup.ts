@@ -148,15 +148,20 @@ async function tryAutoBootstrap(
     config.providers.find((p) => p.type === "ollama") ??
     { id: "ollama", type: "ollama", baseUrl: "http://localhost:11434", label: "Ollama" };
 
-  if (!(await isOllamaInstalled())) {
-    printNotice("Ollama isn't installed. Install it from https://ollama.com/download and run local-code again — or set up a provider manually below.");
-    return undefined;
-  }
-
+  // Check reachability first — this is the ground truth (it means Ollama is both
+  // installed AND running). Only fall back to the CLI-based "is it installed at all"
+  // check, which can false-negative on Windows if `ollama` isn't resolvable on PATH
+  // from this process even though the app itself works fine.
   let reachable = await isOllamaReachable(ollamaProviderConfig.baseUrl);
+
   if (!reachable) {
+    if (!(await isOllamaInstalled())) {
+      printNotice("Ollama isn't installed. Install it from https://ollama.com/download and run local-code again — or set up a provider manually below.");
+      return undefined;
+    }
+
     printNotice("Ollama is installed but not running — starting it now...");
-    startOllamaServer();
+    await startOllamaServer();
     reachable = await waitForOllama(ollamaProviderConfig.baseUrl);
     if (!reachable) {
       printError("Couldn't reach Ollama after starting it. Try running `ollama serve` yourself and rerun local-code.");

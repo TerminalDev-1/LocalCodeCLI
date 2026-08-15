@@ -25,20 +25,22 @@ function lerp(a: number, b: number, t: number): number {
 }
 
 // Colors each '#' pixel with a horizontal gradient; everything else renders as plain space.
+// Pixels render two characters wide (vs. one tall) so the glyphs read closer to square
+// instead of squashed, since terminal cells are taller than they are wide.
 function gradientize(rows: string[], from: [number, number, number], to: [number, number, number]): string[] {
   const width = Math.max(...rows.map((r) => r.length));
   return rows.map((row) => {
     let out = "";
     for (let i = 0; i < row.length; i++) {
       if (row[i] !== "#") {
-        out += " ";
+        out += "  ";
         continue;
       }
       const t = width <= 1 ? 0 : i / (width - 1);
       const r = lerp(from[0], to[0], t);
       const g = lerp(from[1], to[1], t);
       const b = lerp(from[2], to[2], t);
-      out += chalk.rgb(r, g, b)("█");
+      out += chalk.rgb(r, g, b)("██");
     }
     return out;
   });
@@ -47,6 +49,6 @@ function gradientize(rows: string[], from: [number, number, number], to: [number
 export function renderLogo(): string {
   const left = renderWord("LOCAL");
   const right = renderWord("CODE");
-  const combined = left.map((row, i) => row + "  " + right[i]);
-  return gradientize(combined, [56, 189, 248], [129, 140, 248]).join("\n");
+  const combined = left.map((row, i) => row + "   " + right[i]);
+  return gradientize(combined, [56, 189, 248], [232, 121, 249]).join("\n");
 }
