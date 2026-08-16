@@ -1,8 +1,8 @@
 # Local Code Desktop
 
 A native Windows desktop app for Local Code, built with Rust and [iced](https://iced.rs).
-Same agent loop and provider setup as the CLI in the repo root — this is a project/chat
-workspace UI on top of it, styled after Cursor's composer-centric layout.
+A project/chat workspace UI on top of a provider-agnostic agent loop, styled after Cursor's
+composer-centric layout.
 
 ## Layout
 
@@ -36,10 +36,9 @@ resize, minimize/maximize/close in the top-right) instead of the OS chrome.
 
 ## Configuration
 
-Provider/model config is shared with the CLI at `~/.local-code/config.json`. Projects and
-chats are the desktop app's own state, stored separately at
-`~/.local-code/desktop/workspace.json`, since they don't apply to the CLI.
+Provider/model config lives at `~/.local-code/config.json`. Projects and chats are the
+desktop app's own state, stored separately at `~/.local-code/desktop/workspace.json`.
 
-If no default model is configured, launching the app starts the same setup flow as the CLI:
-probe configured providers, fall back to checking for a local Ollama install, and offer to
-pull a model sized to your hardware if nothing is set up yet.
+If no default model is configured, launching the app starts a setup flow: probe configured
+providers, fall back to checking for a local Ollama install, and offer to pull a model sized
+to your hardware if nothing is set up yet.
